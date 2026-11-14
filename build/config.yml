@@ -11,7 +11,7 @@ info:
   description: "本地应用管理与启动器"
   copyright: "App Runner"
   comments: "Go + Wails v3"
-  version: "0.2.3"
+  version: "0.2.4"
   # cfBundleIconName: "appicon" # The macOS icon name in Assets.car icon bundles (optional)
   #                               # Should match the name of your .icon file without the extension
   #                               # If not set and Assets.car exists, defaults to "appicon"
