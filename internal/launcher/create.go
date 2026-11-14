@@ -3,7 +3,6 @@ package launcher
 import (
 	"errors"
 	"fmt"
-	"io/fs"
 	"os"
 	"path/filepath"
 	"sort"
@@ -75,6 +74,38 @@ func sourcePath(path string) (string, os.FileInfo, error) {
 	}
 	return absolute, info, nil
 }
+var entryExtensions = map[string]bool{
+	".exe": true, ".bat": true, ".cmd": true, ".ps1": true, ".py": true, ".jar": true,
+}
+
+// entryCandidates lists launchable files directly inside content and content/bin.
+// Anything deeper is treated as a helper binary and never becomes the default entry.
+func entryCandidates(content string) []string {
+	result := []string{}
+	for _, directory := range []struct{ path, prefix string }{
+		{content, ""},
+		{filepath.Join(content, "bin"), "bin/"},
+	} {
+		items, err := os.ReadDir(directory.path)
+		if err != nil {
+			continue
+		}
+		names := []string{}
+		for _, item := range items {
+			if !item.Type().IsRegular() || !entryExtensions[strings.ToLower(filepath.Ext(item.Name()))] {
+				continue
+			}
+			names = append(names, directory.prefix+item.Name())
+		}
+		sort.Slice(names, func(i, j int) bool { return strings.ToLower(names[i]) < strings.ToLower(names[j]) })
+		result = append(result, names...)
+	}
+	if len(result) > 500 {
+		result = result[:500]
+	}
+	return result
+}
+
 func (s *Store) PrepareNewApp(source, name string) (NewAppInfo, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -115,25 +146,7 @@ func (s *Store) PrepareNewApp(source, name string) (NewAppInfo, error) {
 	if err = unpack(input, content); err != nil {
 		return result, fmt.Errorf("准备应用文件失败：%w", err)
 	}
-	entries := []string{}
-	err = filepath.WalkDir(content, func(path string, item fs.DirEntry, err error) error {
-		if err != nil {
-			return err
-		}
-		if item.IsDir() {
-			return nil
-		}
-		extension := strings.ToLower(filepath.Ext(path))
-		if len(entries) < 500 && (extension == ".exe" || extension == ".bat" || extension == ".cmd" || extension == ".ps1" || extension == ".py" || extension == ".jar") {
-			relative, _ := filepath.Rel(content, path)
-			entries = append(entries, filepath.ToSlash(relative))
-		}
-		return nil
-	})
-	if err != nil {
-		return result, err
-	}
-	sort.Strings(entries)
+	entries := entryCandidates(content)
 	// A provided app.ico is also available at the launcher metadata level.
 	if path, iconInfo, iconErr := iconFile(content); iconErr == nil {
 		if err = copyFile(path, filepath.Join(stage, "app.ico"), iconInfo.Mode().Perm()); err != nil {

@@ -319,6 +319,8 @@ async function main() {
   const source = await fs.mkdtemp(path.join(output,'ui-source-'));
   await fs.mkdir(path.join(source,'bin'),{recursive:true});
   await fs.writeFile(path.join(source,'bin','app.exe'),'created directory application');
+  await fs.mkdir(path.join(source,'resources','app'),{recursive:true});
+  await fs.writeFile(path.join(source,'resources','app','helper.exe'),'nested helper');
   await page.locator('#new-app').click();
   await page.locator('#sheet-layer.open').waitFor();
   await page.locator('#create-kind').selectOption('directory');
@@ -326,13 +328,22 @@ async function main() {
   await page.locator('#create-name').fill('gamma');
   await page.locator('#create-next').click();
   await page.locator('#create-title').waitFor();
+  assert.equal(await page.locator('#create-entry').inputValue(),'bin/app.exe','the default entry ignored the content root / bin scan');
+  assert.deepEqual(await page.locator('#create-entries option').evaluateAll(options => options.map(option => option.value)),['bin/app.exe'],'a nested helper binary leaked into the entry suggestions');
   await page.locator('#create-title').fill('Gamma Browser');
-  await page.locator('#create-category').fill('工具');
+  /* the category field offers the shared dropdown and can create a category in place */
+  await page.locator('#create-category').selectOption('__new-category__');
+  await page.locator('#category-dialog[open]').waitFor();
+  await page.locator('#category-name').fill('导入分类');
+  await page.locator('#category-create').click();
+  await page.waitForFunction(() => !document.querySelector('#category-dialog').open);
+  assert.equal(await page.locator('#create-category').inputValue(),'导入分类','the created category was not selected');
   await page.locator('#create-submit:not([disabled])').waitFor();
   await page.locator('#create-submit').click();
   await page.locator('#sheet-layer.open').waitFor({state:'hidden'});
   await page.waitForFunction(() => document.querySelectorAll('#lib-table tr[data-id]').length === 23);
   assert.match(await text(path.join(library,'gamma','app.toml')),/title = 'Gamma Browser'/);
+  assert.match(await text(path.join(library,'gamma','app.toml')),/category = '导入分类'/);
   assert.equal(await page.locator('#lib-view').evaluate(view => view.classList.contains('is-active')),true,'creating did not switch to the library');
   assert.equal(await page.locator('#lib-search').inputValue(),'');
 

@@ -8,6 +8,7 @@ export interface SettingsInfo {hotkey: string; hotkeyError: string; library: str
 export interface SheetContext {
  apps(): App[];
  categories(): string[];
+ newCategory(): Promise<string | undefined>;
  library(): string;
  settings(): Promise<SettingsInfo>;
  theme(): Theme;
@@ -45,8 +46,23 @@ export const isOpen = (): boolean => open !== null;
 const current = (ctx: SheetContext): App | undefined => ctx.apps().find(app => app.uuid === editingId);
 const dirty = (): boolean => !!draft && JSON.stringify(draft) !== baseline;
 
-function categoryOptions(ctx: SheetContext): string {
- return ctx.categories().map(name => '<option value="' + escape(name) + '"></option>').join('');
+const newCategoryOption = '__new-category__';
+function categorySelect(id: string, value: string, ctx: SheetContext): string {
+ const names = ctx.categories();
+ const options = names.map(name => '<option value="' + escape(name) + '"' + (name === value ? ' selected' : '') + '>' + escape(name) + '</option>');
+ if (value && !names.includes(value)) options.push('<option value="' + escape(value) + '" selected>' + escape(value) + '</option>');
+ return '<select id="' + id + '"><option value=""' + (value ? '' : ' selected') + '>未分类</option>' + options.join('') + '<option value="' + newCategoryOption + '">＋ 新建分类…</option></select>';
+}
+/** 选择已有分类，或通过“新建分类…”创建后就地选中；取消时回到原分类。 */
+async function chooseCategory(select: HTMLSelectElement, ctx: SheetContext, previous: string): Promise<string> {
+ if (select.value !== newCategoryOption) return select.value;
+ const name = await ctx.newCategory();
+ if (!name) {select.value = previous;return previous;}
+ if (!Array.from(select.options).some(option => option.value === name)) {
+  select.insertBefore(new Option(name, name), select.querySelector('option[value="' + newCategoryOption + '"]'));
+ }
+ select.value = name;
+ return name;
 }
 function layer(openit: boolean): void {
  const layer = $('#sheet-layer');
@@ -91,7 +107,7 @@ function renderEdit(ctx: SheetContext): void {
 function basicHTML(ctx: SheetContext): string {
  const data = draft!;
  return '<div class="field"><label for="edit-title">应用名称</label><input id="edit-title" value="' + escape(data.title) + '" autocomplete="off"></div>'
-  + '<div class="field"><label for="edit-category">分类</label><input id="edit-category" list="edit-categories" value="' + escape(data.category) + '" placeholder="未分类；可输入新分类" autocomplete="off"><datalist id="edit-categories">' + categoryOptions(ctx) + '</datalist></div>'
+  + '<div class="field"><label for="edit-category">分类</label>' + categorySelect('edit-category', data.category, ctx) + '</div>'
   + '<div class="field"><label for="edit-type">应用类型</label><select id="edit-type"><option value="">请选择类型</option><option value="GUI"' + (data.type === 'GUI' ? ' selected' : '') + '>图形应用</option><option value="CLI"' + (data.type === 'CLI' ? ' selected' : '') + '>命令行应用</option></select></div>'
   + '<div class="field"><label for="edit-entry">启动入口</label><input id="edit-entry" value="' + escape(data.entry) + '" placeholder="app.exe 或 re:正则表达式" autocomplete="off" spellcheck="false"><small id="edit-entry-hint"></small></div>'
   + '<div class="field"><label for="edit-description">备注</label><textarea id="edit-description" rows="3" placeholder="自由备注、使用提示或待办事项">' + escape(data.description) + '</textarea></div>'
@@ -138,10 +154,10 @@ function wireTabs(ctx: SheetContext): void {
  }
 }
 function wireBasic(ctx: SheetContext): void {
- const title = $<HTMLInputElement>('#edit-title'), category = $<HTMLInputElement>('#edit-category'), type = $<HTMLSelectElement>('#edit-type');
+ const title = $<HTMLInputElement>('#edit-title'), category = $<HTMLSelectElement>('#edit-category'), type = $<HTMLSelectElement>('#edit-type');
  const entry = $<HTMLInputElement>('#edit-entry'), description = $<HTMLTextAreaElement>('#edit-description'), admin = $<HTMLInputElement>('#edit-admin');
  title.oninput = () => {draft!.title = title.value;updateEditStatus();};
- category.oninput = () => {draft!.category = category.value;updateEditStatus();};
+ category.onchange = async () => {draft!.category = await chooseCategory(category, ctx, draft!.category);updateEditStatus();};
  type.onchange = () => {draft!.type = type.value;updateEditStatus();};
  entry.oninput = () => {draft!.entry = entry.value;updateEditStatus();scheduleEntryCheck(ctx);};
  description.oninput = () => {draft!.description = description.value;updateEditStatus();};
@@ -277,17 +293,17 @@ function renderCreate(ctx: SheetContext): void {
   $('#sheet-body').innerHTML = '<div class="step-line"><span class="step-dot ok">1</span><span>来源</span><span>→</span><span class="step-dot">2</span><b>填写详情</b></div>'
    + '<div class="notice">文件已准备到 <strong>' + escape(app.target) + '</strong>，填写应用信息后才会写入配置。</div>'
    + '<div class="field"><label for="create-title">应用名称</label><input id="create-title" value="' + escape(draft!.title) + '" autocomplete="off"></div>'
-   + '<div class="field"><label for="create-category">分类</label><input id="create-category" list="create-categories" value="' + escape(draft!.category) + '" placeholder="未分类；可输入新分类" autocomplete="off"><datalist id="create-categories">' + categoryOptions(ctx) + '</datalist></div>'
+   + '<div class="field"><label for="create-category">分类</label>' + categorySelect('create-category', draft!.category, ctx) + '</div>'
    + '<div class="field"><label for="create-type">应用类型</label><select id="create-type"><option value="">请选择类型</option><option value="GUI"' + (draft!.type === 'GUI' ? ' selected' : '') + '>图形应用</option><option value="CLI"' + (draft!.type === 'CLI' ? ' selected' : '') + '>命令行应用</option></select></div>'
    + '<div class="field"><label for="create-entry">启动入口</label><input id="create-entry" list="create-entries" value="' + escape(draft!.entry) + '" placeholder="app.exe 或 re:正则表达式" autocomplete="off" spellcheck="false"><datalist id="create-entries">' + (app.entries || []).map(entry => '<option value="' + escape(entry) + '"></option>').join('') + '</datalist><small id="create-entry-hint"></small></div>'
    + '<div class="field"><label for="create-description">备注</label><textarea id="create-description" rows="3" placeholder="自由备注、使用提示或待办事项">' + escape(draft!.description) + '</textarea></div>'
    + '<label class="check"><input type="checkbox" id="create-admin"' + (draft!.runAsAdmin ? ' checked' : '') + '><span>以管理员身份运行</span></label>'
    + '<p class="sheet-error" id="create-error" role="alert"></p>';
   $('#sheet-foot').innerHTML = '<span class="sheet-state" id="sheet-state"></span><div class="sheet-actions"><button type="button" class="btn" id="create-back">上一步</button><button type="button" class="btn primary" id="create-submit">创建应用</button></div>';
-  const title = $<HTMLInputElement>('#create-title'), category = $<HTMLInputElement>('#create-category'), type = $<HTMLSelectElement>('#create-type');
+  const title = $<HTMLInputElement>('#create-title'), category = $<HTMLSelectElement>('#create-category'), type = $<HTMLSelectElement>('#create-type');
   const entry = $<HTMLInputElement>('#create-entry'), description = $<HTMLTextAreaElement>('#create-description'), admin = $<HTMLInputElement>('#create-admin');
   title.oninput = () => {draft!.title = title.value;updateCreateStatus();};
-  category.oninput = () => {draft!.category = category.value;updateCreateStatus();};
+  category.onchange = async () => {draft!.category = await chooseCategory(category, ctx, draft!.category);updateCreateStatus();};
   type.onchange = () => {draft!.type = type.value;updateCreateStatus();};
   description.oninput = () => {draft!.description = description.value;updateCreateStatus();};
   admin.onchange = () => {draft!.runAsAdmin = admin.checked;updateCreateStatus();};

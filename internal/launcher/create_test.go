@@ -59,6 +59,23 @@ func TestCreateDirectoryOnlyDeploysOnValidSave(t *testing.T) {
 		t.Fatal("cleanup removed deployed application")
 	}
 }
+func TestCreateEntryCandidatesStayInContentRootAndBin(t *testing.T) {
+	library := t.TempDir()
+	source := t.TempDir()
+	write(t, filepath.Join(source, "Tool.EXE"), "root executable")
+	write(t, filepath.Join(source, "bin", "tool.exe"), "bin executable")
+	write(t, filepath.Join(source, "bin", "helper", "nested.exe"), "nested executable")
+	write(t, filepath.Join(source, "resources", "app", "deep.exe"), "deep executable")
+	store := NewStore(library)
+	info, err := store.PrepareNewApp(source, "scoped-entries")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(store.CleanupImports)
+	if got := strings.Join(info.Entries, ","); got != "Tool.EXE,bin/tool.exe" {
+		t.Fatalf("entry candidates = %q, want content root before content/bin and nothing deeper", got)
+	}
+}
 func TestScanReclaimsCrashedStagingWithoutTouchingPendingImports(t *testing.T) {
 	library := t.TempDir()
 	stale := filepath.Join(library, ".app-runner-new-crashed")

@@ -446,9 +446,11 @@ async function changeCategory(id: string, category: string): Promise<boolean> {
 
 /* ---------- category dialogs ---------- */
 let pendingCategoryApp = '';
-function openCategoryDialog(id = ''): void {
- if (busy) return;
+let categoryCreated: ((name?: string) => void) | null = null;
+function openCategoryDialog(id = '', onCreated?: (name?: string) => void): void {
+ if (busy) {onCreated?.(undefined);return;}
  pendingCategoryApp = id;
+ categoryCreated = onCreated || null;
  $('#category-dialog-message').textContent = id ? '将“' + (currentApp(id)?.title || '') + '”移入新分类' : '创建后可以在编辑面板里给应用指定分类';
  $('#category-dialog-error').textContent = '';
  $<HTMLInputElement>('#category-name').value = '';
@@ -456,6 +458,7 @@ function openCategoryDialog(id = ''): void {
  $('#category-name').focus();
 }
 $('#category-cancel').onclick = () => $<HTMLDialogElement>('#category-dialog').close();
+$<HTMLDialogElement>('#category-dialog').addEventListener('close', () => {const created = categoryCreated;categoryCreated = null;created?.();});
 $('#category-form').onsubmit = async event => {
  event.preventDefault();
  const name = $<HTMLInputElement>('#category-name').value.trim();
@@ -467,6 +470,7 @@ $('#category-form').onsubmit = async event => {
   extraCategories.add(name);
   saveCategories();
   renderLibrary();
+  const created = categoryCreated;categoryCreated = null;created?.(name);
   $<HTMLDialogElement>('#category-dialog').close();
  } finally {button.disabled = false;}
 };
@@ -588,6 +592,7 @@ document.addEventListener('dragover', event => {
 const sheetCtx: detail.SheetContext = {
  apps: () => apps,
  categories: () => categoryNames(),
+ newCategory: () => new Promise<string | undefined>(resolve => openCategoryDialog('', resolve)),
  library: () => libraryPath,
  settings: async () => await API.Settings() as unknown as SettingsInfo,
  theme: () => theme,
